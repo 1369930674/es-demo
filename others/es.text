@@ -1,0 +1,60 @@
+{
+  "settings": {
+    "index.max_ngram_diff": 10,
+    "analysis": {
+      "analyzer": {
+        "my_ngram_analyzer": {
+          "type": "custom",
+          "tokenizer": "my_ngram_tokenizer",
+          "filter": [
+            "lowercase"
+          ]
+        }
+      },
+      "tokenizer": {
+        "my_ngram_tokenizer": {
+          "type": "ngram",
+          "min_gram": 1,
+          "max_gram": 1,
+          "token_chars": [
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "userId": {
+        "type": "keyword"
+      },
+      "fileName": {
+        "type": "text",
+        "index": true,
+        "store": true,
+        "analyzer": "my_ngram_analyzer"
+      },
+      "text": {
+        "type": "text",
+        "index": true,
+        "store": true,
+        "analyzer": "my_ngram_analyzer"
+      },
+      "abstract": {
+        "type": "text",
+        "index": true,
+        "store": true,
+        "analyzer": "my_ngram_analyzer"
+      },
+      "keywords": {
+              "type": "text",
+              "index": true,
+              "store": true,
+              "analyzer": "my_ngram_analyzer"
+            },
+      "createTime": {
+        "type": "date",
+        "format": "yyyy-MM-dd HH:mm:ss"
+      }
+    }
+  }
+}
