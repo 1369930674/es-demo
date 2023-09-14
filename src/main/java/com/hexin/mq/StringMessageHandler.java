@@ -3,7 +3,6 @@ package com.hexin.mq;
 import com.hexin.entity.Constant;
 import com.hexin.entity.EsMessage;
 import com.hexin.service.AudioService;
-import com.hexin.service.EsService;
 import com.hexin.util.json.JsonUtils;
 import com.rabbitmq.client.Channel;
 import lombok.extern.slf4j.Slf4j;
@@ -12,8 +11,6 @@ import org.springframework.amqp.rabbit.listener.adapter.MessageListenerAdapter;
 import org.springframework.amqp.support.converter.SimpleMessageConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-
-import java.io.IOException;
 
 @Service("stringMessageHandler")
 @Slf4j
@@ -33,10 +30,10 @@ public class StringMessageHandler extends MessageListenerAdapter {
             switch (infoType) {
                 case Constant.MQ_INSERT:
                 case Constant.MQ_UPDATE:
-                    audioService.syncAudioInfoFromSqlToEs(fileId);
+//                    audioService.syncAudioInfoFromSqlToEs(fileId);
                     break;
                 case Constant.MQ_DELETE:
-                    audioService.deleteAudioInfo(fileId);
+//                    audioService.deleteAudioInfo(fileId);
                     break;
                 default:
                     break;

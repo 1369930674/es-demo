@@ -3,12 +3,16 @@ import com.hexin.dao.AudioTextDao;
 import com.hexin.entity.*;
 import com.hexin.mq.SendService;
 import com.hexin.service.AudioService;
-import com.hexin.service.EsService;
+import com.hexin.service.LuceneService;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.lucene.queryparser.classic.ParseException;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.junit4.SpringRunner;
+
+import java.io.IOException;
+import java.util.List;
 
 @RunWith(SpringRunner.class)
 @SpringBootTest(classes = EsStudyApplication.class)
@@ -16,27 +20,19 @@ import org.springframework.test.context.junit4.SpringRunner;
 public class Test {
 
     @Autowired
-    private EsService esService;
-    @Autowired
     AudioTextDao audioTextDao;
     @Autowired
     private AudioService audioService;
     @Autowired
     private SendService sendService;
+    @Autowired
+    private LuceneService luceneService;
 
     @org.junit.Test
-    public void testInsert() {
-//        Map<String, Object> param = new HashMap<>();
-//        param.put("tableName", "t_audio_text_2023_08");
-//        param.put("fileId", 1350625);
-//        AudioInfo audioInfo = audioTextDao.selectText(param);
-//        System.out.println(1);
+    public void testInsert() throws IOException {
         SyncParam syncParam = new SyncParam();
-//        syncParam.setUserId(530756924);
-//        audioService.syncAudioInfoFromSqlToEs(109644);
-        audioService.syncAudioInfoFromSqlToEs(109645);
-//
-//        audioService.syncAudioInfoFromSqlToEs(50761);
+        syncParam.setUserId(525498756);
+        audioService.syncAudioInfoFromSqlToLucene(syncParam);
         System.out.println(1);
     }
 
@@ -47,16 +43,23 @@ public class Test {
         sendService.sendMessage(esMessage, Constant.QUEUE_NAME);
     }
 
+
     @org.junit.Test
     public void testQuery() {
-        EsSearchParam esSearchParam = new EsSearchParam();
-        esSearchParam.setPage(1);
-        esSearchParam.setPageSize(20);
-        esSearchParam.setUserId(530756924);
-        esSearchParam.setQuery("");
-        EsPageInfo<EsAudioInfo> esAudioInfoEsPageInfo = esService.multiConditionSearch(esSearchParam);
+        SearchParam searchParam = new SearchParam();
+        searchParam.setPage(1);
+        searchParam.setPageSize(20);
+        searchParam.setUserId(525498756);
+        searchParam.setQuery("课程");
+        try {
+            List<AudioInfo> audioInfoList = luceneService.searchDocument(searchParam);
+            System.out.println(audioInfoList.size());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (ParseException e) {
+            throw new RuntimeException(e);
+        }
         System.out.println(1);
     }
-
 
 }

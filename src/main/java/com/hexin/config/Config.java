@@ -15,5 +15,7 @@ public class Config {
     private String password;
     @Value("${rabbit.concurrent.consumers:1}")
     private Integer concurrentConsumers;
+    @Value("${lucene.index.dir:./lucene}")
+    private String luceneIndexDir;
 
 }

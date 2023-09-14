@@ -17,8 +17,8 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @Service
 @Slf4j
@@ -26,64 +26,16 @@ public class AudioService {
     @Autowired
     private AudioTextDao audioTextDao;
     @Autowired
-    private EsService esService;
+    private LuceneService luceneService;
 
-    /**
-     * 同步时间范围内的文件到es
-     *
-     * @param syncParam
-     */
-    public void syncAudioInfoFromSqlToEs(SyncParam syncParam) {
-        List<Integer> fileIds = audioTextDao.getFileIds(syncParam);
-        log.info("sync file from sql to es, sysncParam: {}, file size: {}", JsonUtils.toJSONString(syncParam),
-                fileIds.size());
-        ExecutorService executorService = Executors.newFixedThreadPool(10); // 创建一个具有固定线程数量的线程池
-        for (Integer fileId : fileIds) {
-            executorService.execute(new Runnable() {
-                @Override
-                public void run() {
-                    synchronized (this){
-                        syncAudioInfoFromSqlToEs(fileId);
-                    }
-                }
-            });
-        }
-        executorService.shutdown(); // 关闭线程池
-    }
-
-
-    /**
-     * sql数据同步es
-     *
-     * @param fileId
-     */
-    public void syncAudioInfoFromSqlToEs(Integer fileId) {
-        AudioInfo audioInfo = selectAudioInfoByFileId(fileId);
-        try {
-            esService.insertAudioInfo(audioInfo);
-        } catch (IOException e) {
-            log.error("fileId: {} inser text into es error: {}", fileId, e);
-        }
-    }
-
-    /**
-     * 删除es音频文件
-     * @param fileId
-     */
-    public void deleteAudioInfo(Integer fileId){
-        try {
-            esService.deleteAudioInfo(fileId);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
 
     /**
      * 根据fileId查询音频文件信息
+     *
      * @param fileId
      * @return
      */
-    private AudioInfo selectAudioInfoByFileId(Integer fileId) {
+    public AudioInfo selectAudioInfoByFileId(Integer fileId) {
         Map<String, Object> param = new HashMap<>();
         String tableName = getTableNameByFileId(fileId);
         param.put("tableName", tableName);
@@ -143,5 +95,82 @@ public class AudioService {
             }
         }
         return ans.toString();
+    }
+
+    /**
+     * 批量导入数据到lucene
+     * @param syncParam
+     */
+
+    public void syncAudioInfoFromSqlToLucene(SyncParam syncParam) {
+        List<Integer> fileIds = audioTextDao.getFileIds(syncParam);
+        log.info("sync file from sql to es, sysncParam: {}, file size: {}", JsonUtils.toJSONString(syncParam),
+                fileIds.size());
+        Integer size = 1000;
+        List<List<Integer>> lists = IntStream.range(0, (fileIds.size() + size - 1) / size)
+                .mapToObj(i -> fileIds.subList(i * size, Math.min((i + 1) * size, fileIds.size())))
+                .collect(Collectors.toList());
+        for (List<Integer> ids : lists) {
+            List<AudioInfo> audioInfos = selectAudioInfoFromLuceneBatch(ids);
+            try {
+                luceneService.insertAudioInfoBatch(audioInfos);
+                log.info("insert success");
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+        //多线程会导致枪锁失败
+        /*ExecutorService executorService = Executors.newFixedThreadPool(10); // 创建一个具有固定线程数量的线程池
+        for (List<Integer> ids : lists) {
+            List<AudioInfo> audioInfos = ids.stream().map(id -> selectAudioInfoByFileId(id)).collect(Collectors.toList());
+            executorService.execute(new Runnable() {
+                @Override
+                public void run() {
+                    synchronized (this) {
+                        try {
+                            luceneService.insertAudioInfoBatch(audioInfos);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                }
+            });
+        }*/
+//        executorService.shutdown(); // 关闭线程池
+
+    }
+
+    /**
+     * 从lucene中批量查询fileIds
+     * @param fileIds
+     * @return
+     */
+    private List<AudioInfo> selectAudioInfoFromLuceneBatch(List<Integer> fileIds) {
+        Map<String, Object> param = new HashMap<>();
+        param.put("tableName", "t_audio_text_2020_07");
+        param.put("fileIds", fileIds);
+        List<AudioInfo> audioInfoList = audioTextDao.selectTextBatch(param);
+        audioInfoList.stream().forEach(audioInfo -> {
+            if (audioInfo.getAsrResult() != null) {
+                String asrResult = GzipUtils.decompressGzipText(audioInfo.getAsrResult());
+                audioInfo.setText(getTextWithoutSpk(asrResult));
+            }
+        });
+
+        return audioInfoList;
+    }
+
+    /**
+     * 根据fileId导入luncene
+     * @param fileId
+     */
+    public void syncAudioInfoFromSqlToLucene(Integer fileId) {
+        AudioInfo audioInfo = selectAudioInfoByFileId(fileId);
+        try {
+            luceneService.insertAudioInfo(audioInfo);
+            log.info("fileId : {}, success", fileId);
+        } catch (IOException e) {
+            log.error("fileId: {} inser text into es error: {}", fileId, e);
+        }
     }
 }

@@ -54,4 +54,21 @@
         FROM t_audio_file_1
         WHERE file_id = #{fileId}
     </select>
+    <select id="selectTextBatch" resultType="com.hexin.entity.AudioInfo">
+        SELECT taf.file_id as fileId,
+        tat.asr_result as asrResult,
+        -- tat.abstracts as abstracts,
+        -- tat.keywords as keywords,
+        DATE_FORMAT(tat.update_time, '%Y-%m-%d %H:%i:%s') as updateTime,
+        taf.user_id as userId,
+        taf.file_name as fileName,
+        DATE_FORMAT(taf.create_time, '%Y-%m-%d %H:%i:%s') as createTime
+        FROM t_audio_file_1 taf
+        LEFT JOIN ${tableName} tat ON taf.file_id = tat.file_id
+        WHERE taf.file_id in
+        <foreach collection="fileIds" item="fileId" index="index" separator="," open="(" close=")">
+            #{fileId}
+        </foreach>
+    </select>
+
 </mapper>

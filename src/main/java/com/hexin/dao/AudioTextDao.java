@@ -30,4 +30,6 @@ public interface AudioTextDao {
     List<Integer> getFileIds(SyncParam syncParam);
 
     AudioInfo getFileInfo(Integer fileId);
+
+    List<AudioInfo> selectTextBatch(Map<String, Object> param);
 }
