@@ -5,11 +5,11 @@ import lombok.Data;
 import java.util.List;
 
 /**
- * es搜索返回结果
+ * 搜索返回结果
  * @param <T>
  */
 @Data
-public class EsPageInfo<T> {
+public class SearchPageInfo<T> {
 
     /**
      * 总条数

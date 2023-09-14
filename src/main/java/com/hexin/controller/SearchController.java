@@ -10,12 +10,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.util.List;
 
 @RestController
 @RequestMapping("/es")
 @Slf4j
-public class EsController {
+public class SearchController {
     @Autowired
     private AudioService audioService;
     @Autowired
@@ -38,21 +37,21 @@ public class EsController {
     }
 
     @RequestMapping("/search")
-    public List<AudioInfo> search(Integer userId, String query) {
+    public SearchPageInfo<AudioInfo> search(Integer userId, String query) {
         SearchParam searchParam = new SearchParam();
         searchParam.setPage(1);
         searchParam.setPageSize(10);
         searchParam.setUserId(userId);
         searchParam.setQuery(query);
-        List<AudioInfo> esAudioInfoEsPageInfo = null;
+        SearchPageInfo<AudioInfo> searchPageInfo = null;
         try {
-            esAudioInfoEsPageInfo = luceneService.searchDocument(searchParam);
+            searchPageInfo = luceneService.searchDocument(searchParam);
         } catch (IOException e) {
             throw new RuntimeException(e);
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
-        return esAudioInfoEsPageInfo;
+        return searchPageInfo;
     }
 
 }

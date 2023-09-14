@@ -12,7 +12,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.junit4.SpringRunner;
 
 import java.io.IOException;
-import java.util.List;
 
 @RunWith(SpringRunner.class)
 @SpringBootTest(classes = EsStudyApplication.class)
@@ -47,13 +46,13 @@ public class Test {
     @org.junit.Test
     public void testQuery() {
         SearchParam searchParam = new SearchParam();
-        searchParam.setPage(1);
+        searchParam.setPage(2);
         searchParam.setPageSize(20);
         searchParam.setUserId(525498756);
-        searchParam.setQuery("课程");
+        searchParam.setQuery("增强内在力量3");
         try {
-            List<AudioInfo> audioInfoList = luceneService.searchDocument(searchParam);
-            System.out.println(audioInfoList.size());
+            SearchPageInfo<AudioInfo> searchPageInfo = luceneService.searchDocument(searchParam);
+            System.out.println(searchPageInfo.getList().size());
         } catch (IOException e) {
             throw new RuntimeException(e);
         } catch (ParseException e) {

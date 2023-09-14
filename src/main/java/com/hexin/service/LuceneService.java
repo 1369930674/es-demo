@@ -2,6 +2,7 @@ package com.hexin.service;
 
 import com.hexin.config.Config;
 import com.hexin.entity.AudioInfo;
+import com.hexin.entity.SearchPageInfo;
 import com.hexin.entity.NGramAnalyzer;
 import com.hexin.entity.SearchParam;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 @Component
@@ -83,19 +85,31 @@ public class LuceneService {
      * @throws IOException
      * @throws ParseException
      */
-    public List<AudioInfo> searchDocument(SearchParam param) throws IOException, ParseException {
+    public SearchPageInfo<AudioInfo> searchDocument(SearchParam param) throws IOException, ParseException {
         long startTime = System.currentTimeMillis();
         Query query = buildQuery(param);
         Directory directory = FSDirectory.open(Paths.get(config.getLuceneIndexDir()));
+        SearchPageInfo<AudioInfo> searchPageInfo = new SearchPageInfo<>();
         try (IndexReader reader = DirectoryReader.open(directory)) {
             IndexSearcher searcher = new IndexSearcher(reader);
-            TopDocs topDocs = searcher.search(query, 10);
-            long total = topDocs.totalHits.value;
-            ScoreDoc[] scoreDocs = topDocs.scoreDocs;
+            //设置分页信息
+            int start = 0;
+            int end = 1000;
+            if (param.getPage() != null) {
+                start = (param.getPage() - 1) * param.getPageSize();
+                end = start + param.getPageSize();
+            }
+
+            TopDocs topDocs = searcher.search(query, end);
+            ScoreDoc[] scoreDocs = Arrays.copyOfRange(topDocs.scoreDocs, start, end);
             List<AudioInfo> audioInfoList = getAudioInfosFromDocs(query, searcher, scoreDocs);
+            searchPageInfo.setList(audioInfoList);
+            long total = topDocs.totalHits.value;
+            searchPageInfo.setTotal(total);
+
             long endTime = System.currentTimeMillis();
             log.info("search time: {}, total: ", endTime - startTime, total);
-            return audioInfoList;
+            return searchPageInfo;
         } catch (InvalidTokenOffsetsException e) {
             throw new RuntimeException(e);
         }
@@ -134,14 +148,16 @@ public class LuceneService {
     private void highlighter(AudioInfo audioInfo, Query query) {
         //文稿
         if (StringUtils.isNotBlank(audioInfo.getText())) {
-            String highlightText = doHighlight("text", audioInfo.getText(), query, new NGramAnalyzer(1, 1));
+            String highlightText = doHighlight("text", audioInfo.getText(), query, new NGramAnalyzer(1, 1),
+                    true, 30);
             if (StringUtils.isNotBlank(highlightText)) {
                 audioInfo.setText(highlightText);
             }
         }
         //文件名称
         if (StringUtils.isNotBlank(audioInfo.getFileName())) {
-            String highlightFileName = doHighlight("fileName", audioInfo.getFileName(), query, new NGramAnalyzer(1, 1));
+            String highlightFileName = doHighlight("fileName", audioInfo.getFileName(), query, new NGramAnalyzer(1, 1),
+                    false, null);
             if (StringUtils.isNotBlank(highlightFileName)) {
                 audioInfo.setFileName(highlightFileName);
             }
@@ -155,12 +171,20 @@ public class LuceneService {
      * @param content
      * @param query
      * @param analyzer
+     * @param isLimitContextSize
+     * @param limitContextSize
      * @return
      */
-    public String doHighlight(String field, String content, Query query, Analyzer analyzer) {
+    public String doHighlight(String field, String content, Query query, Analyzer analyzer, boolean isLimitContextSize,
+                              Integer limitContextSize) {
         try {
+            QueryScorer scorer = new QueryScorer(query);
             // 创建高亮器
-            Highlighter highlighter = new Highlighter(new SimpleHTMLFormatter(), new QueryScorer(query));
+            Highlighter highlighter = new Highlighter(new SimpleHTMLFormatter(), scorer);
+            if (isLimitContextSize) {
+                //设置显示高亮前后多少字符
+                highlighter.setTextFragmenter(new SimpleSpanFragmenter(scorer, limitContextSize));
+            }
             // 获取文本的 TokenStream
             TokenStream tokenStream = TokenSources.getTokenStream(field, content, analyzer);
             // 执行高亮操作
@@ -187,10 +211,10 @@ public class LuceneService {
             document.add(new StringField("userId", String.valueOf(audioInfo.getUserId()), Field.Store.YES));
         }
         if (StringUtils.isNotBlank(audioInfo.getText())) {
-            document.add(new TextField("text", audioInfo.getText(), Field.Store.YES));
+            document.add(new TextField("text", audioInfo.getText(), Field.Store.NO));
         }
         if (StringUtils.isNotBlank(audioInfo.getFileName())) {
-            document.add(new TextField("fileName", audioInfo.getFileName(), Field.Store.YES));
+            document.add(new TextField("fileName", audioInfo.getFileName(), Field.Store.NO));
         }
         if (StringUtils.isNotBlank(audioInfo.getAbstracts())) {
             document.add(new TextField("abstracts", audioInfo.getAbstracts(), Field.Store.NO));
