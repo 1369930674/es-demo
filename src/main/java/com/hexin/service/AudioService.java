@@ -17,6 +17,8 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -150,12 +152,23 @@ public class AudioService {
         param.put("tableName", "t_audio_text_2020_07");
         param.put("fileIds", fileIds);
         List<AudioInfo> audioInfoList = audioTextDao.selectTextBatch(param);
-        audioInfoList.stream().forEach(audioInfo -> {
+        /*audioInfoList.stream().forEach(audioInfo -> {
             if (audioInfo.getAsrResult() != null) {
                 String asrResult = GzipUtils.decompressGzipText(audioInfo.getAsrResult());
                 audioInfo.setText(getTextWithoutSpk(asrResult));
             }
-        });
+        });*/
+        ExecutorService executorService = Executors.newFixedThreadPool(10); // 创建一个具有固定线程数量的线程池
+        for (AudioInfo audioInfo : audioInfoList) {
+            executorService.execute(new Runnable() {
+                @Override
+                public void run() {
+                    String asrResult = GzipUtils.decompressGzipText(audioInfo.getAsrResult());
+                    audioInfo.setText(getTextWithoutSpk(asrResult));
+                }
+            });
+        }
+        executorService.shutdown(); // 关闭线程池
 
         return audioInfoList;
     }

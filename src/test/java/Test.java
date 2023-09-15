@@ -46,10 +46,10 @@ public class Test {
     @org.junit.Test
     public void testQuery() {
         SearchParam searchParam = new SearchParam();
-        searchParam.setPage(2);
+        searchParam.setPage(3);
         searchParam.setPageSize(20);
         searchParam.setUserId(525498756);
-        searchParam.setQuery("增强内在力量3");
+        searchParam.setQuery("阶段");
         try {
             SearchPageInfo<AudioInfo> searchPageInfo = luceneService.searchDocument(searchParam);
             System.out.println(searchPageInfo.getList().size());

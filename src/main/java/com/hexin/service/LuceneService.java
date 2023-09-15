@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 
 @Component
@@ -92,18 +93,16 @@ public class LuceneService {
         SearchPageInfo<AudioInfo> searchPageInfo = new SearchPageInfo<>();
         try (IndexReader reader = DirectoryReader.open(directory)) {
             IndexSearcher searcher = new IndexSearcher(reader);
-            //设置分页信息
-            int start = 0;
-            int end = 1000;
-            if (param.getPage() != null) {
-                start = (param.getPage() - 1) * param.getPageSize();
-                end = start + param.getPageSize();
-            }
-
-            TopDocs topDocs = searcher.search(query, end);
-            ScoreDoc[] scoreDocs = Arrays.copyOfRange(topDocs.scoreDocs, start, end);
-            List<AudioInfo> audioInfoList = getAudioInfosFromDocs(query, searcher, scoreDocs);
+            TopDocs topDocs = searcher.search(query, 10000);
+            ScoreDoc[] scoreDocs = topDocs.scoreDocs;
+            //排序
+            sort(scoreDocs);
+            //分页处理
+            ScoreDoc[] pageScoreDocs = fetchPage(scoreDocs, param.getPage(), param.getPageSize());
+            //获取audioinfo并进行高亮等处理
+            List<AudioInfo> audioInfoList = getAudioInfosFromDocs(query, searcher, pageScoreDocs);
             searchPageInfo.setList(audioInfoList);
+            //设置总数
             long total = topDocs.totalHits.value;
             searchPageInfo.setTotal(total);
 
@@ -113,6 +112,52 @@ public class LuceneService {
         } catch (InvalidTokenOffsetsException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * 分页处理
+     *
+     * @param scoreDocs
+     * @param page
+     * @param pageSize
+     * @return
+     */
+    private ScoreDoc[] fetchPage(ScoreDoc[] scoreDocs, Integer page, Integer pageSize) {
+        if (page == null || pageSize == null) {
+            return scoreDocs;
+        }
+        int totalResults = scoreDocs.length;
+        // 起始索引
+        int start = (page - 1) * pageSize;
+        // 结束索引，不超过结果总数
+        int end = Math.min(start + pageSize, totalResults);
+        if (start >= end) {
+            // 返回空数组表示无结果
+            return new ScoreDoc[0];
+        }
+        return Arrays.copyOfRange(scoreDocs, start, end);
+    }
+
+
+    /**
+     * 记过排序，按照匹配度降序
+     *
+     * @param scoreDocs
+     */
+    private void sort(ScoreDoc[] scoreDocs) {
+        Arrays.sort(scoreDocs, new Comparator<ScoreDoc>() {
+            @Override
+            public int compare(ScoreDoc doc1, ScoreDoc doc2) {
+                // 匹配度降序排序
+                if (doc1.score < doc2.score) {
+                    return 1;
+                } else if (doc1.score > doc2.score) {
+                    return -1;
+                } else {
+                    return 0;
+                }
+            }
+        });
     }
 
     /**
