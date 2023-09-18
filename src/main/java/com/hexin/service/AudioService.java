@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -101,6 +102,7 @@ public class AudioService {
 
     /**
      * 批量导入数据到lucene
+     *
      * @param syncParam
      */
 
@@ -108,7 +110,7 @@ public class AudioService {
         List<Integer> fileIds = audioTextDao.getFileIds(syncParam);
         log.info("sync file from sql to es, sysncParam: {}, file size: {}", JsonUtils.toJSONString(syncParam),
                 fileIds.size());
-        Integer size = 1000;
+        Integer size = 100;
         List<List<Integer>> lists = IntStream.range(0, (fileIds.size() + size - 1) / size)
                 .mapToObj(i -> fileIds.subList(i * size, Math.min((i + 1) * size, fileIds.size())))
                 .collect(Collectors.toList());
@@ -121,29 +123,11 @@ public class AudioService {
                 throw new RuntimeException(e);
             }
         }
-        //多线程会导致枪锁失败
-        /*ExecutorService executorService = Executors.newFixedThreadPool(10); // 创建一个具有固定线程数量的线程池
-        for (List<Integer> ids : lists) {
-            List<AudioInfo> audioInfos = ids.stream().map(id -> selectAudioInfoByFileId(id)).collect(Collectors.toList());
-            executorService.execute(new Runnable() {
-                @Override
-                public void run() {
-                    synchronized (this) {
-                        try {
-                            luceneService.insertAudioInfoBatch(audioInfos);
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    }
-                }
-            });
-        }*/
-//        executorService.shutdown(); // 关闭线程池
-
     }
 
     /**
      * 从lucene中批量查询fileIds
+     *
      * @param fileIds
      * @return
      */
@@ -159,14 +143,30 @@ public class AudioService {
             }
         });*/
         ExecutorService executorService = Executors.newFixedThreadPool(10); // 创建一个具有固定线程数量的线程池
+        CountDownLatch latch = new CountDownLatch(audioInfoList.size()); // 创建一个计数器，用于等待所有子线程完成
         for (AudioInfo audioInfo : audioInfoList) {
             executorService.execute(new Runnable() {
                 @Override
                 public void run() {
-                    String asrResult = GzipUtils.decompressGzipText(audioInfo.getAsrResult());
-                    audioInfo.setText(getTextWithoutSpk(asrResult));
+                    try {
+                        if (audioInfo.getAsrResult() != null) {
+                            String asrResult = GzipUtils.decompressGzipText(audioInfo.getAsrResult());
+                            audioInfo.setText(getTextWithoutSpk(asrResult));
+                        }
+                    } catch (Exception e) {
+                        log.error("selectAudioInfoFromLuceneBatch error:{}", e);
+                    } finally {
+                        latch.countDown(); // 子线程完成任务后减少计数器
+                    }
+
                 }
             });
+        }
+        try {
+            latch.await(); // 等待所有子线程完成
+        } catch (InterruptedException e) {
+            log.error("getAudioInfosFromDocs interrupted: {}", e);
+            Thread.currentThread().interrupt();
         }
         executorService.shutdown(); // 关闭线程池
 
@@ -175,6 +175,7 @@ public class AudioService {
 
     /**
      * 根据fileId导入luncene
+     *
      * @param fileId
      */
     public void syncAudioInfoFromSqlToLucene(Integer fileId) {

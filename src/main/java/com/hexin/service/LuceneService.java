@@ -5,6 +5,7 @@ import com.hexin.entity.AudioInfo;
 import com.hexin.entity.SearchPageInfo;
 import com.hexin.entity.NGramAnalyzer;
 import com.hexin.entity.SearchParam;
+import com.hexin.util.GzipUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.lucene.analysis.Analyzer;
@@ -26,6 +27,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Component
 @Slf4j
@@ -95,6 +99,8 @@ public class LuceneService {
             IndexSearcher searcher = new IndexSearcher(reader);
             TopDocs topDocs = searcher.search(query, 10000);
             ScoreDoc[] scoreDocs = topDocs.scoreDocs;
+            long searchEndTime = System.currentTimeMillis();
+
             //排序
             sort(scoreDocs);
             //分页处理
@@ -107,7 +113,8 @@ public class LuceneService {
             searchPageInfo.setTotal(total);
 
             long endTime = System.currentTimeMillis();
-            log.info("search time: {}, total: ", endTime - startTime, total);
+            log.info("search time: {}", (searchEndTime - startTime));
+            log.info("total time: {} total: {}", endTime - startTime, total);
             return searchPageInfo;
         } catch (InvalidTokenOffsetsException e) {
             throw new RuntimeException(e);
@@ -172,15 +179,35 @@ public class LuceneService {
      */
     private List<AudioInfo> getAudioInfosFromDocs(Query query, IndexSearcher searcher, ScoreDoc[] scoreDocs) throws IOException, InvalidTokenOffsetsException {
         List<AudioInfo> audioInfoList = new ArrayList<>();
+        ExecutorService executorService = Executors.newFixedThreadPool(10); // 创建一个具有固定线程数量的线程池
+        CountDownLatch latch = new CountDownLatch(scoreDocs.length); // 创建一个计数器，用于等待所有子线程完成
         for (ScoreDoc scoreDoc : scoreDocs) {
-            Document doc = searcher.doc(scoreDoc.doc);
-            if (doc.get("fileId") != null) {
-                AudioInfo audioInfo = audioService.selectAudioInfoByFileId(Integer.valueOf(doc.get("fileId")));
-                highlighter(audioInfo, query);
-                audioInfoList.add(audioInfo);
-            }
+            executorService.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Document doc = searcher.doc(scoreDoc.doc);
+                        if (doc.get("fileId") != null) {
+                            AudioInfo audioInfo = audioService.selectAudioInfoByFileId(Integer.valueOf(doc.get("fileId")));
+                            highlighter(audioInfo, query);
+                            audioInfoList.add(audioInfo);
+                        }
+                    } catch (Exception e) {
+                        log.error("getAudioInfosFromDocs error: {}", e);
+                    } finally {
+                        latch.countDown(); // 子线程完成任务后减少计数器
+                    }
 
+                }
+            });
         }
+        try {
+            latch.await(); // 等待所有子线程完成
+        } catch (InterruptedException e) {
+            log.error("getAudioInfosFromDocs interrupted: {}", e);
+            Thread.currentThread().interrupt();
+        }
+        executorService.shutdown(); // 关闭线程池
         return audioInfoList;
     }
 
@@ -298,5 +325,13 @@ public class LuceneService {
         }
 
         return queryBuilder.build();
+    }
+
+    public Integer getIndexTotal() throws IOException {
+        Directory directory = FSDirectory.open(Paths.get(config.getLuceneIndexDir()));
+        IndexReader reader = DirectoryReader.open(directory);  // indexDirectory 表示索引存储的位置
+        int total = reader.numDocs();
+        log.info("index total: {}", total);
+        return total;
     }
 }

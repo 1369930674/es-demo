@@ -54,4 +54,22 @@ public class SearchController {
         return searchPageInfo;
     }
 
+    @RequestMapping("/total")
+    public Integer getIndexTotal() {
+        try {
+            return luceneService.getIndexTotal();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @RequestMapping("/gc")
+    public Integer startGc() {
+        try {
+            System.gc();
+            return 0;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
 }
