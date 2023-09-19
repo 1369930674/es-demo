@@ -2,10 +2,9 @@ package com.hexin.service;
 
 import com.hexin.config.Config;
 import com.hexin.entity.AudioInfo;
-import com.hexin.entity.SearchPageInfo;
 import com.hexin.entity.NGramAnalyzer;
+import com.hexin.entity.SearchPageInfo;
 import com.hexin.entity.SearchParam;
-import com.hexin.util.GzipUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.lucene.analysis.Analyzer;
@@ -21,6 +20,8 @@ import org.apache.lucene.store.FSDirectory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -39,6 +40,32 @@ public class LuceneService {
     @Autowired
     private AudioService audioService;
 
+    private IndexWriter indexWriter;
+    private IndexReader indexReader;
+    private IndexSearcher searcher;
+
+    @PostConstruct
+    public void init() throws IOException {
+        Directory directory = FSDirectory.open(Paths.get(config.getLuceneIndexDir()));
+        Analyzer analyzer = new NGramAnalyzer(1, 1);
+        IndexWriterConfig indexWriterConfig = new IndexWriterConfig(analyzer);
+        indexWriter = new IndexWriter(directory, indexWriterConfig);
+        indexReader = DirectoryReader.open(directory);
+        searcher = new IndexSearcher(indexReader);
+        searcher.setQueryCache(new LRUQueryCache(1000, 100));
+    }
+
+    @PreDestroy
+    // 在应用程序关闭时关闭 IndexReader
+    public void close() throws IOException {
+        if (indexWriter != null) {
+            indexWriter.close();
+        }
+        if (indexReader != null) {
+            indexReader.close();
+        }
+    }
+
     /**
      * 批量导入
      *
@@ -46,20 +73,14 @@ public class LuceneService {
      * @throws IOException
      */
     public void insertAudioInfoBatch(List<AudioInfo> audioInfoList) throws IOException {
-        Directory directory = FSDirectory.open(Paths.get(config.getLuceneIndexDir()));
-        Analyzer analyzer = new NGramAnalyzer(1, 1);
-        IndexWriterConfig indexWriterConfig = new IndexWriterConfig(analyzer);
         List<Document> documentList = new ArrayList<>();
         for (AudioInfo audioInfo : audioInfoList) {
             Document document = getDocument(audioInfo);
             documentList.add(document);
         }
-        try (IndexWriter indexWriter = new IndexWriter(directory, indexWriterConfig)) {
-            indexWriter.addDocuments(documentList);
-            indexWriter.commit();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        indexWriter.addDocuments(documentList);
+        indexWriter.commit();
+
     }
 
     /**
@@ -95,30 +116,25 @@ public class LuceneService {
         Query query = buildQuery(param);
         Directory directory = FSDirectory.open(Paths.get(config.getLuceneIndexDir()));
         SearchPageInfo<AudioInfo> searchPageInfo = new SearchPageInfo<>();
-        try (IndexReader reader = DirectoryReader.open(directory)) {
-            IndexSearcher searcher = new IndexSearcher(reader);
-            TopDocs topDocs = searcher.search(query, 10000);
-            ScoreDoc[] scoreDocs = topDocs.scoreDocs;
-            long searchEndTime = System.currentTimeMillis();
+        TopDocs topDocs = searcher.search(query, 10000);
+        ScoreDoc[] scoreDocs = topDocs.scoreDocs;
+        long searchEndTime = System.currentTimeMillis();
 
-            //排序
-            sort(scoreDocs);
-            //分页处理
-            ScoreDoc[] pageScoreDocs = fetchPage(scoreDocs, param.getPage(), param.getPageSize());
-            //获取audioinfo并进行高亮等处理
-            List<AudioInfo> audioInfoList = getAudioInfosFromDocs(query, searcher, pageScoreDocs);
-            searchPageInfo.setList(audioInfoList);
-            //设置总数
-            long total = topDocs.totalHits.value;
-            searchPageInfo.setTotal(total);
+        //排序
+        sort(scoreDocs);
+        //分页处理
+        ScoreDoc[] pageScoreDocs = fetchPage(scoreDocs, param.getPage(), param.getPageSize());
+        //获取audioinfo并进行高亮等处理
+        List<AudioInfo> audioInfoList = getAudioInfosFromDocs(query, searcher, pageScoreDocs);
+        searchPageInfo.setList(audioInfoList);
+        //设置总数
+        long total = topDocs.totalHits.value;
+        searchPageInfo.setTotal(total);
 
-            long endTime = System.currentTimeMillis();
-            log.info("search time: {}", (searchEndTime - startTime));
-            log.info("total time: {} total: {}", endTime - startTime, total);
-            return searchPageInfo;
-        } catch (InvalidTokenOffsetsException e) {
-            throw new RuntimeException(e);
-        }
+        long endTime = System.currentTimeMillis();
+        log.info("search time: {}", (searchEndTime - startTime));
+        log.info("total time: {} total: {}", endTime - startTime, total);
+        return searchPageInfo;
     }
 
     /**
@@ -177,7 +193,7 @@ public class LuceneService {
      * @throws IOException
      * @throws InvalidTokenOffsetsException
      */
-    private List<AudioInfo> getAudioInfosFromDocs(Query query, IndexSearcher searcher, ScoreDoc[] scoreDocs) throws IOException, InvalidTokenOffsetsException {
+    private List<AudioInfo> getAudioInfosFromDocs(Query query, IndexSearcher searcher, ScoreDoc[] scoreDocs) {
         List<AudioInfo> audioInfoList = new ArrayList<>();
         ExecutorService executorService = Executors.newFixedThreadPool(10); // 创建一个具有固定线程数量的线程池
         CountDownLatch latch = new CountDownLatch(scoreDocs.length); // 创建一个计数器，用于等待所有子线程完成
@@ -189,6 +205,7 @@ public class LuceneService {
                         Document doc = searcher.doc(scoreDoc.doc);
                         if (doc.get("fileId") != null) {
                             AudioInfo audioInfo = audioService.selectAudioInfoByFileId(Integer.valueOf(doc.get("fileId")));
+                            //高亮
                             highlighter(audioInfo, query);
                             audioInfoList.add(audioInfo);
                         }
